@@ -1,8 +1,8 @@
 {
   "name": "lawfirm",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "律所软件（企业老板法律助手）V0.01 - H5 前端 + Express 后端骨架",
+  "description": "律所软件（企业老板法律助手）V0.02 - H5 前端 + Express 后端 + 参考知识库（律师上传条文，大模型优先引用）",
   "scripts": {
     "start": "node server.js"
   },

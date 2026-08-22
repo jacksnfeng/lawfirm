@@ -3,31 +3,52 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>律所助手 · 企业老板法律助手 V0.01</title>
+  <title>律所助手 · 企业老板法律助手 V0.02</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <header class="topbar">
     <span class="logo">⚖️ 律所助手</span>
-    <span class="ver">V0.01</span>
+    <span class="ver">V0.02</span>
   </header>
 
-  <main class="chat">
-    <div id="messages" class="messages">
-      <div class="bubble sys">你好，我是企业老板法律助手。直接打字、拍照或传文件问我任何法律问题。</div>
-    </div>
-  </main>
+  <nav class="tabs">
+    <button class="tab active" data-view="chat">💬 咨询</button>
+    <button class="tab" data-view="kb">📚 知识库</button>
+  </nav>
 
-  <footer class="composer">
-    <textarea id="msg" placeholder="描述你的法律问题…" rows="1"></textarea>
-    <div class="actions">
-      <button id="btnPhoto" class="icon" title="拍照/相册">📷</button>
-      <button id="btnFile" class="icon" title="文件">📎</button>
-      <button id="btnSend" class="send">发送</button>
-    </div>
-    <input id="filePhoto" type="file" accept="image/*" capture="environment" hidden />
-    <input id="fileDoc" type="file" accept="*/*" hidden />
-  </footer>
+  <!-- 咨询视图 -->
+  <section id="view-chat" class="view active">
+    <main class="chat">
+      <div id="messages" class="messages">
+        <div class="bubble sys">你好，我是企业老板法律助手。直接打字、拍照或传文件问我任何法律问题。回答会优先参考「知识库」中律师上传的条文。</div>
+      </div>
+    </main>
+    <footer class="composer">
+      <textarea id="msg" placeholder="描述你的法律问题…" rows="1"></textarea>
+      <div class="actions">
+        <button id="btnPhoto" class="icon" title="拍照/相册">📷</button>
+        <button id="btnFile" class="icon" title="文件">📎</button>
+        <button id="btnSend" class="send">发送</button>
+      </div>
+      <input id="filePhoto" type="file" accept="image/*" capture="environment" hidden />
+      <input id="fileDoc" type="file" accept="*/*" hidden />
+    </footer>
+  </section>
+
+  <!-- 知识库视图 -->
+  <section id="view-kb" class="view">
+    <main class="kb">
+      <div class="kb-intro">律师可在此上传法律条文、法规、合同模板等文件，作为大模型回答的优先参考源。</div>
+      <div class="kb-upload">
+        <input id="kbFile" type="file" accept=".txt,.md,.text,.csv,.json,.log,*/*" multiple />
+        <button id="btnKbUpload" class="send">上传到知识库</button>
+      </div>
+      <div id="kbStatus" class="kb-status"></div>
+      <div class="kb-list-title">已上传文件（<span id="kbCount">0</span>）</div>
+      <ul id="kbList" class="kb-list"></ul>
+    </main>
+  </section>
 
   <script src="app.js"></script>
 </body>
