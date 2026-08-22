@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>律所助手 · 企业老板法律助手 V0.01</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <span class="logo">⚖️ 律所助手</span>
+    <span class="ver">V0.01</span>
+  </header>
+
+  <main class="chat">
+    <div id="messages" class="messages">
+      <div class="bubble sys">你好，我是企业老板法律助手。直接打字、拍照或传文件问我任何法律问题。</div>
+    </div>
+  </main>
+
+  <footer class="composer">
+    <textarea id="msg" placeholder="描述你的法律问题…" rows="1"></textarea>
+    <div class="actions">
+      <button id="btnPhoto" class="icon" title="拍照/相册">📷</button>
+      <button id="btnFile" class="icon" title="文件">📎</button>
+      <button id="btnSend" class="send">发送</button>
+    </div>
+    <input id="filePhoto" type="file" accept="image/*" capture="environment" hidden />
+    <input id="fileDoc" type="file" accept="*/*" hidden />
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
