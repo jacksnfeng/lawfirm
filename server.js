@@ -16,8 +16,9 @@ const PORT = process.env.PORT || 3000;
 const cfg = {
   hy3: {
     key: process.env.HY3_KEY,
-    base: process.env.HY3_BASE || 'https://tokenhub.tencentmaas.com/v1',
-    model: process.env.HY3_MODEL || 'Hy3',
+    // TokenPlan 专用网关（sk-tp- 开头的 key 必须走这里，普通混元 tokenhub 地址会 401）
+    base: process.env.HY3_BASE || 'https://api.lkeap.cloud.tencent.com/plan/v3',
+    model: process.env.HY3_MODEL || 'hy3',
   },
   hunyuan: {
     key: process.env.HUNYUAN_KEY,
