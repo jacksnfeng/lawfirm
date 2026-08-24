@@ -51,28 +51,11 @@ $('btnFile').addEventListener('click', () => $('fileDoc').click());
 
 // ===== 知识库（kb） =====
 async function loadKbList() {
-  try {
-    const r = await fetch('/api/kb/list');
-    const data = await r.json();
-    $('kbCount').textContent = data.count || 0;
-    const list = $('kbList');
-    list.innerHTML = '';
-    (data.files || []).forEach((f) => {
-      const li = document.createElement('li');
-      const name = document.createElement('span');
-      name.className = 'kb-name';
-      name.textContent = `${f.name}（${(f.size / 1024).toFixed(1)} KB）`;
-      const del = document.createElement('button');
-      del.className = 'kb-del';
-      del.textContent = '删除';
-      del.onclick = () => deleteKb(f.savedAs);
-      li.appendChild(name);
-      li.appendChild(del);
-      list.appendChild(li);
-    });
-  } catch (e) {
-    $('kbStatus').textContent = '加载失败：' + e.message;
-  }
+  // 知识库仅律师/管理员可管理（/api/kb/* 受 lawyerGuard 保护）。
+  // 老板端（匿名）不调用受保护的接口，避免 403；仅显示引导提示。
+  $('kbCount').textContent = 0;
+  $('kbStatus').textContent = '知识库由律师在「律师端」管理，请访问 lawyer.html 登录后上传/查看。';
+  $('kbList').innerHTML = '';
 }
 
 async function deleteKb(savedAs) {
@@ -83,7 +66,7 @@ async function deleteKb(savedAs) {
   else $('kbStatus').textContent = '删除失败：' + (data.error || '');
 }
 
-$('btnKbUpload').addEventListener('click', async () => {
+if ($('btnKbUpload')) $('btnKbUpload').addEventListener('click', async () => {
   const input = $('kbFile');
   if (!input.files.length) { $('kbStatus').textContent = '请先选择文件'; return; }
   $('kbStatus').textContent = '上传中…';

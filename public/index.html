@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>律所助手 · 企业老板法律助手 V0.02</title>
+  <title>律所助手 · 企业老板法律助手</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <header class="topbar">
     <span class="logo">⚖️ 律所助手</span>
-    <span class="ver">V0.02</span>
+    <span class="ver" id="verBadge">V?</span>
   </header>
 
   <nav class="tabs">
@@ -36,14 +36,10 @@
     </footer>
   </section>
 
-  <!-- 知识库视图 -->
+  <!-- 知识库视图（老板端仅作引导，实际上传/管理在律师端 lawyer.html） -->
   <section id="view-kb" class="view">
     <main class="kb">
-      <div class="kb-intro">律师可在此上传法律条文、法规、合同模板等文件，作为大模型回答的优先参考源。</div>
-      <div class="kb-upload">
-        <input id="kbFile" type="file" accept=".txt,.md,.text,.csv,.json,.log,*/*" multiple />
-        <button id="btnKbUpload" class="send">上传到知识库</button>
-      </div>
+      <div class="kb-intro">知识库由律师在「律师端」管理。律师登录 lawyer.html 后可上传法律条文、法规、合同模板等文件，作为大模型回答的优先参考源。</div>
       <div id="kbStatus" class="kb-status"></div>
       <div class="kb-list-title">已上传文件（<span id="kbCount">0</span>）</div>
       <ul id="kbList" class="kb-list"></ul>
@@ -51,5 +47,9 @@
   </section>
 
   <script src="app.js"></script>
+  <script>
+    // 动态显示真实版本号（与后台一致，拉 /api/version）
+    fetch('api/version').then(r=>r.json()).then(d=>{ if(d&&d.ok) document.getElementById('verBadge').textContent=d.version; }).catch(()=>{});
+  </script>
 </body>
 </html>
