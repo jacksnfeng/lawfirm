@@ -40,6 +40,9 @@ const allKeysReady = keysReady.hy3 && keysReady.hunyuan && keysReady.deepseek;
 
 const upload = multer({ dest: path.join(__dirname, 'uploads') });
 app.use(express.static(path.join(__dirname, 'public')));
+// 解析 JSON 请求体（后台 key 设置接口需要）
+app.use(express.json());
+
 
 // ===== 知识库（V0.02） =====
 const KB_DIR = path.join(__dirname, 'uploads', 'kb');
@@ -220,12 +223,51 @@ app.post('/api/chat', upload.single('file'), async (req, res) => {
   }
 });
 
+
+// ===== 后台管理：API Key 设置（V0.03） =====
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "lawfirm-admin"
+function adminAuth(req, res, next) {
+  const t = req.headers["x-admin-token"] || (req.body && req.body.token)
+  if (t !== ADMIN_TOKEN) return res.status(401).json({ error: "管理员令牌错误" })
+  next()
+}
+function maskKey(k) {
+  if (!k) return ""
+  if (k.length <= 12) return k[0] + "***" + k.slice(-2)
+  return k.slice(0, 8) + "…" + k.slice(-4)
+}
+function writeEnvKey(key, val) {
+  const p = path.join(__dirname, ".env")
+  let lines = fs.existsSync(p) ? fs.readFileSync(p, "utf8").split("\n") : []
+  let found = false
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].startsWith(key + "=")) { lines[i] = key + "=" + val; found = true }
+  }
+  if (!found) lines.push(key + "=" + val)
+  fs.writeFileSync(p, lines.join("\n"))
+}
+app.get("/api/admin/keys", adminAuth, (req, res) => {
+  res.json({ ok: true, keys: {
+    hy3: { value: maskKey(cfg.hy3.key), ready: keysReady.hy3, base: cfg.hy3.base, model: cfg.hy3.model },
+    hunyuan: { value: maskKey(cfg.hunyuan.key), ready: keysReady.hunyuan, base: cfg.hunyuan.base, model: cfg.hunyuan.model },
+    deepseek: { value: maskKey(cfg.deepseek.key), ready: keysReady.deepseek, base: cfg.deepseek.base, model: cfg.deepseek.model }
+  }, allKeysReady })
+})
+app.post("/api/admin/keys", adminAuth, (req, res) => {
+  const b = req.body || {}
+  const changed = {}
+  if (b.hy3) { cfg.hy3.key = b.hy3; writeEnvKey("HY3_KEY", b.hy3); changed.hy3 = true }
+  if (b.hunyuan) { cfg.hunyuan.key = b.hunyuan; writeEnvKey("HUNYUAN_KEY", b.hunyuan); changed.hunyuan = true }
+  if (b.deepseek) { cfg.deepseek.key = b.deepseek; writeEnvKey("DEEPSEEK_KEY", b.deepseek); changed.deepseek = true }
+  keysReady.hy3 = !!cfg.hy3.key; keysReady.hunyuan = !!cfg.hunyuan.key; keysReady.deepseek = !!cfg.deepseek.key
+  res.json({ ok: true, changed, keysReady, allKeysReady })
+})
 // 健康检查
 app.get('/api/health', (req, res) =>
   res.json({ ok: true, version: 'V0.02', keysReady, allKeysReady, ts: new Date().toISOString() })
 );
 
-app.listen(PORT, () => {
+app.listen(PORT, "0.0.0.0", () => {
   console.log(`Lawfirm V0.02 服务已启动: http://localhost:${PORT}`);
   console.log('Key 状态:', keysReady, 'allReady =', allKeysReady);
 });

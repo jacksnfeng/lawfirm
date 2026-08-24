@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lawfirm 后台 · API Key 管理</title>
+<style>
+  :root { --bg:#0f1419; --card:#1a212b; --line:#2a333f; --txt:#e6edf3; --sub:#8b98a5; --acc:#4f9dff; --ok:#3fb950; --bad:#f85149; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--txt); padding:24px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .sub { color:var(--sub); font-size:13px; margin-bottom:20px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px; margin-bottom:18px; }
+  .card h2 { font-size:15px; margin:0 0 14px; display:flex; align-items:center; gap:8px; }
+  .row { display:flex; align-items:center; justify-content:space-between; padding:10px 0; border-bottom:1px dashed var(--line); }
+  .row:last-child { border-bottom:none; }
+  .kname { font-size:14px; }
+  .kname small { color:var(--sub); display:block; font-size:11px; margin-top:2px; }
+  .kval { font-family:monospace; font-size:13px; color:var(--acc); }
+  .dot { width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:6px; }
+  .ok { background:var(--ok); } .bad { background:var(--bad); }
+  label { font-size:13px; color:var(--sub); display:block; margin-bottom:6px; }
+  input { width:100%; padding:10px 12px; background:#0d1117; border:1px solid var(--line); border-radius:8px; color:var(--txt); font-family:monospace; font-size:13px; margin-bottom:14px; }
+  input:focus { outline:none; border-color:var(--acc); }
+  .btn { background:var(--acc); color:#fff; border:none; padding:11px 18px; border-radius:8px; font-size:14px; cursor:pointer; }
+  .btn:hover { opacity:.9; }
+  .msg { margin-top:14px; font-size:13px; padding:10px 12px; border-radius:8px; display:none; }
+  .msg.ok { background:rgba(63,185,80,.15); color:var(--ok); display:block; }
+  .msg.err { background:rgba(248,81,73,.15); color:var(--bad); display:block; }
+  .tokenbox { background:#0d1117; border:1px solid var(--line); border-radius:8px; padding:10px 12px; font-size:12px; color:var(--sub); }
+  .grid { display:grid; grid-template-columns:1fr; gap:0; }
+  @media(min-width:640px){ .grid2 { display:grid; grid-template-columns:2fr 1fr; gap:16px; } }
+</style>
+</head>
+<body>
+  <h1>⚙️ Lawfirm 后台 · API Key 管理</h1>
+  <div class="sub">设置主模型 / 视觉模型 / 备用模型的 Key。修改即时生效并写入服务器 .env（重启后保留）。</div>
+
+  <div class="card">
+    <h2>🔑 当前在用 Key</h2>
+    <div id="curKeys" class="grid">加载中…</div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <h2>✏️ 修改 Key</h2>
+      <label>主模型 Key（hy3 推理文字）</label>
+      <input id="inHy3" placeholder="留空则不修改">
+      <label>视觉模型 Key（混元 hy-vision）</label>
+      <input id="inHy" placeholder="留空则不修改">
+      <label>备用 Key（deepseek 兜底）</label>
+      <input id="inDs" placeholder="留空则不修改">
+      <button class="btn" id="saveBtn">保存并生效</button>
+      <div id="msg" class="msg"></div>
+    </div>
+
+    <div class="card">
+      <h2>🛡️ 管理员令牌</h2>
+      <div class="tokenbox" id="tokBox">令牌：<code id="tokVal">lawfirm-admin</code>（默认，可在 .env 设 ADMIN_TOKEN 修改）</div>
+      <label style="margin-top:12px;">本次操作令牌</label>
+      <input id="inTok" value="lawfirm-admin" placeholder="与管理员令牌一致">
+    </div>
+  </div>
+
+<script>
+const API = '';
+const $ = id => document.getElementById(id);
+
+function maskPreview(v){ return v ? v.slice(0,8)+'…'+v.slice(-4) : '(空)'; }
+
+async function load(){
+  const tok = $('inTok').value || 'lawfirm-admin';
+  try{
+    const r = await fetch(API+'/api/admin/keys', { headers:{'x-admin-token':tok} });
+    const d = await r.json();
+    if(!d.ok){ $('curKeys').innerHTML = '<span style="color:var(--bad)">加载失败：'+d.error+'</span>'; return; }
+    const k = d.keys;
+    $('curKeys').innerHTML = `
+      ${row('主模型 hy3','Hy3',k.hy3)}
+      ${row('视觉模型 hunyuan','hy-vision-2.0-instruct',k.hunyuan)}
+      ${row('备用 deepseek','deepseek-chat',k.deepseek)}
+    `;
+    $('inHy3').placeholder = '当前：'+maskPreview(k.hy3.value)+'（留空不修改）';
+    $('inHy').placeholder  = '当前：'+maskPreview(k.hunyuan.value)+'（留空不修改）';
+    $('inDs').placeholder  = '当前：'+maskPreview(k.deepseek.value)+'（留空不修改）';
+  }catch(e){ $('curKeys').innerHTML='<span style="color:var(--bad)">请求出错</span>'; }
+}
+function row(name,model,k){
+  const cls = k.ready ? 'ok':'bad';
+  const txt = k.ready ? '已就绪':'未配置';
+  return `<div class="row"><div class="kname">${name}<small>model: ${model}<br>base: ${k.base}</small></div>
+    <div style="text-align:right"><div class="kval">${maskPreview(k.value)}</div>
+    <div style="font-size:12px;color:var(--sub)"><span class="dot ${cls}"></span>${txt}</div></div></div>`;
+}
+
+$('saveBtn').onclick = async ()=>{
+  const tok = $('inTok').value || 'lawfirm-admin';
+  const body = {};
+  if($('inHy3').value.trim()) body.hy3 = $('inHy3').value.trim();
+  if($('inHy').value.trim())  body.hunyuan = $('inHy').value.trim();
+  if($('inDs').value.trim())  body.deepseek = $('inDs').value.trim();
+  if(Object.keys(body).length===0){ show('没有要修改的 Key（留空项不会修改）',false); return; }
+  try{
+    const r = await fetch(API+'/api/admin/keys',{ method:'POST', headers:{'Content-Type':'application/json','x-admin-token':tok}, body:JSON.stringify(body)});
+    const d = await r.json();
+    if(d.ok){ show('✅ 已保存并即时生效：'+JSON.stringify(d.changed),true); $('inHy3').value=$('inHy').value=$('inDs').value=''; load(); }
+    else show('❌ '+d.error,false);
+  }catch(e){ show('❌ 请求失败',false); }
+};
+function show(t,ok){ const m=$('msg'); m.className='msg '+(ok?'ok':'err'); m.textContent=t; }
+
+load();
+</script>
+</body>
+</html>
