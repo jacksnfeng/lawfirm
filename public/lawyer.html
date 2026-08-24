@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lawfirm 律师端 · 知识库管理</title>
+<style>
+  :root { --bg:#0f1419; --card:#1a212b; --line:#2a333f; --txt:#e6edf3; --sub:#8b98a5; --acc:#4f9dff; --ok:#3fb950; --bad:#f85149; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--txt); padding:24px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .sub { color:var(--sub); font-size:13px; margin-bottom:20px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px; margin-bottom:18px; }
+  .card h2 { font-size:15px; margin:0 0 14px; }
+  label { font-size:13px; color:var(--sub); display:block; margin-bottom:6px; }
+  input[type=text],input[type=password],input[type=file] { width:100%; padding:10px 12px; background:#0d1117; border:1px solid var(--line); border-radius:8px; color:var(--txt); font-size:13px; margin-bottom:14px; }
+  .btn { background:var(--acc); color:#fff; border:none; padding:11px 18px; border-radius:8px; font-size:14px; cursor:pointer; }
+  .btn:hover { opacity:.9; }
+  .btn.sm { padding:6px 12px; font-size:12px; }
+  .btn.bad { background:var(--bad); }
+  .msg { margin-top:12px; font-size:13px; padding:10px 12px; border-radius:8px; display:none; }
+  .msg.ok { background:rgba(63,185,80,.15); color:var(--ok); display:block; }
+  .msg.err { background:rgba(248,81,73,.15); color:var(--bad); display:block; }
+  .row { display:flex; align-items:center; justify-content:space-between; padding:10px 0; border-bottom:1px dashed var(--line); }
+  .row:last-child { border-bottom:none; }
+  .fname { font-size:13px; }
+  .fmeta { font-size:11px; color:var(--sub); }
+  #app { display:none; }
+  #login { max-width:360px; }
+  .ver { font-size:12px; color:var(--sub); }
+</style>
+</head>
+<body>
+  <h1>⚖️ Lawfirm 律师端 <span id="verBadge" class="ver"></span></h1>
+  <div class="sub">律师登录后管理「参考知识库」（法律条文/法规），老板端咨询时会优先引用。</div>
+
+  <div class="card" id="login">
+    <h2>🔐 律师登录</h2>
+    <label>用户名</label>
+    <input type="text" id="uUser" placeholder="lawyer">
+    <label>密码</label>
+    <input type="password" id="uPass" placeholder="密码">
+    <button class="btn" id="loginBtn">登录</button>
+    <div id="loginMsg" class="msg"></div>
+    <div class="ver" style="margin-top:12px">默认账号 lawyer / lawyer123（首次启动 seed），请在 .env 设 LAWYER_BOOT_PASS 后修改。</div>
+  </div>
+
+  <div id="app">
+    <div class="card">
+      <h2>📚 参考知识库（已存 TNAS 共享）</h2>
+      <label>上传法律条文 / 法规文件（txt/md/csv 等）</label>
+      <input type="file" id="upFile">
+      <button class="btn" id="upBtn">上传</button>
+      <div id="upMsg" class="msg"></div>
+      <div id="kbList" style="margin-top:14px">加载中…</div>
+    </div>
+  </div>
+
+<script>
+const API = '';
+const $ = id => document.getElementById(id);
+let TOKEN = localStorage.getItem('lf_lawyer_token') || '';
+
+async function loadVersion(){
+  try{ const r=await fetch(API+'/api/version'); const d=await r.json(); if(d.ok) $('verBadge').textContent=d.version; }catch(e){}
+}
+function show(el, t, ok){ const m=$(el); m.className='msg '+(ok?'ok':'err'); m.textContent=t; }
+
+async function doLogin(){
+  const username=$('uUser').value.trim(), password=$('uPass').value;
+  if(!username||!password){ show('loginMsg','请输入用户名和密码',false); return; }
+  try{
+    const r=await fetch(API+'/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password})});
+    const d=await r.json();
+    if(d.ok){ TOKEN=d.token; localStorage.setItem('lf_lawyer_token',TOKEN); $('login').style.display='none'; $('app').style.display='block'; loadKb(); }
+    else show('loginMsg','❌ '+d.error,false);
+  }catch(e){ show('loginMsg','❌ 登录请求失败',false); }
+}
+function authHeaders(){ return { 'Authorization':'Bearer '+TOKEN, 'Content-Type':'application/json' }; }
+
+async function loadKb(){
+  try{
+    const r=await fetch(API+'/api/kb/list',{headers:{'Authorization':'Bearer '+TOKEN}});
+    const d=await r.json();
+    if(!d.ok){ $('kbList').innerHTML='<span style="color:var(--bad)">加载失败：'+(d.error||'')+'</span>'; return; }
+    if(!d.files.length){ $('kbList').innerHTML='<span style="color:var(--sub)">暂无条文，上传一个吧。</span>'; return; }
+    $('kbList').innerHTML = d.files.map(f=>`
+      <div class="row"><div><div class="fname">${f.name}</div><div class="fmeta">${f.size} 字节 · ${new Date(f.mtime).toLocaleString()}</div></div>
+      <button class="btn sm bad" onclick="delKb('${f.savedAs}')">删除</button></div>`).join('');
+  }catch(e){ $('kbList').innerHTML='<span style="color:var(--bad)">请求出错</span>'; }
+}
+async function delKb(name){
+  if(!confirm('确认删除「'+name+'」？')) return;
+  try{
+    const r=await fetch(API+'/api/kb/'+encodeURIComponent(name),{method:'DELETE',headers:{'Authorization':'Bearer '+TOKEN}});
+    const d=await r.json();
+    show('upMsg', d.ok?'✅ 已删除 '+name:'❌ '+d.error, d.ok);
+    loadKb();
+  }catch(e){ show('upMsg','❌ 删除失败',false); }
+}
+$('upBtn').onclick = async ()=>{
+  const f=$('upFile').files[0];
+  if(!f){ show('upMsg','请先选文件',false); return; }
+  const fd=new FormData(); fd.append('file',f);
+  try{
+    const r=await fetch(API+'/api/kb/upload',{method:'POST',headers:{'Authorization':'Bearer '+TOKEN},body:fd});
+    const d=await r.json();
+    if(d.ok){ show('upMsg','✅ 已上传 '+(d.name||f.name),true); $('upFile').value=''; loadKb(); }
+    else show('upMsg','❌ '+(d.error||'上传失败'),false);
+  }catch(e){ show('upMsg','❌ 上传失败',false); }
+};
+$('loginBtn').onclick = doLogin;
+loadVersion();
+// 已有 token 则直接进
+if(TOKEN){ $('login').style.display='none'; $('app').style.display='block'; loadKb(); }
+</script>
+</body>
+</html>

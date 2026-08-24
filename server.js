@@ -57,7 +57,7 @@ console.log('[kb] 知识库目录 =', KB_DIR, KB_DIR === TNAS_KB ? '(TNAS)' : '(
 // 知识库上传：用 dest 风格（与 chat 上传同一套，已验证可写盘），落盘后重命名为 <时间戳>_<原名>
 const kbUpload = multer({ dest: KB_DIR });
 
-app.post('/api/kb/upload', kbUpload.single('file'), (req, res) => {
+app.post('/api/kb/upload', lawyerGuard, kbUpload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: '未收到文件' });
   const safe = (req.file.originalname || 'file').replace(/[^\w.\-\u4e00-\u9fa5]/g, '_');
   const savedAs = `${Date.now()}_${safe}`;
@@ -76,7 +76,7 @@ app.post('/api/kb/upload', kbUpload.single('file'), (req, res) => {
   });
 });
 
-app.get('/api/kb/list', (req, res) => {
+app.get('/api/kb/list', lawyerGuard, (req, res) => {
   try {
     const files = fs.readdirSync(KB_DIR)
       .filter((f) => fs.statSync(path.join(KB_DIR, f)).isFile())
@@ -94,7 +94,7 @@ app.get('/api/kb/list', (req, res) => {
   }
 });
 
-app.delete('/api/kb/:name', (req, res) => {
+app.delete('/api/kb/:name', lawyerGuard, (req, res) => {
   const name = req.params.name;
   // 防目录穿越
   if (/[\\/]/.test(name)) return res.status(400).json({ error: '非法文件名' });
@@ -232,7 +232,7 @@ app.post('/api/chat', userGuard, upload.single('file'), async (req, res) => {
 
 
 // ===== 后台管理：API Key 设置（V0.03） =====
-const VERSION = "V0.04"
+const VERSION = "V0.05"
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "lawfirm-admin"
 // 后台来源 IP 白名单：仅允许办公室局域网 192.168.0.0/24（含 jack 机 192.168.0.131）
 // 其他任何来源访问 /api/admin/* 一律 403，避免公网/外网直接进后台。
@@ -259,37 +259,94 @@ function adminGuard(req, res, next) {
   next()
 }
 
-// ===== 用户鉴权骨架（V0.04，为小程序/APP 预留，默认不强制）=====
-// 设计：当前 H5 仍匿名可用（REQUIRE_AUTH=false）；将来小程序/APP 设 REQUIRE_AUTH=true，
-// 前端先用 /api/auth/issue 用管理员令牌换一个 user token，之后 /api/chat 带 Authorization: Bearer <token>。
+// ===== 用户鉴权（V0.05，真实体系；原 V0.04 内存骨架升级）=====
+// 角色：admin(jack/运维) / lawyer(律师，少数) / boss(老板，未来很多)。
+// 持久化：data/users.json（零依赖）。密码 scrypt 哈希。token：HMAC 签名（role+username+exp）。
+// 当前老板端仍匿名可用（REQUIRE_AUTH=false）；将来设 REQUIRE_AUTH=true 即强制登录。
+const crypto = require('crypto')
 const REQUIRE_AUTH = process.env.REQUIRE_AUTH === 'true'
-const USER_ISSUE_TOKEN = process.env.USER_ISSUE_TOKEN || ADMIN_TOKEN // 发放用户 token 的管理员令牌
-const userTokens = new Map() // token -> { userId, createdAt }
-function issueUserToken(userId) {
-  const token = 'u_' + Math.random().toString(36).slice(2) + Date.now().toString(36)
-  userTokens.set(token, { userId: userId || 'user', createdAt: Date.now() })
-  return token
+const DATA_DIR = path.join(__dirname, 'data')
+fs.mkdirSync(DATA_DIR, { recursive: true })
+const USERS_FILE = path.join(DATA_DIR, 'users.json')
+const TOKEN_SECRET = process.env.TOKEN_SECRET || (ADMIN_TOKEN + '_lawfirm_token_v05')
+const TOKEN_TTL = 7 * 24 * 3600 * 1000 // 7 天
+function loadUsers() {
+  if (!fs.existsSync(USERS_FILE)) return {}
+  try { return JSON.parse(fs.readFileSync(USERS_FILE, 'utf8')) } catch { return {} }
 }
-// /api/auth/issue：管理员令牌 -> 用户 token（小程序/APP 启动时调用一次）
+function saveUsers(obj) {
+  fs.writeFileSync(USERS_FILE, JSON.stringify(obj, null, 2))
+}
+// 首次启动 seed 第一个律师（从 .env 的 LAWYER_BOOT_USER/PASS，或默认）；不覆盖已存在
+(function seedFirstLawyer() {
+  const users = loadUsers()
+  const u = process.env.LAWYER_BOOT_USER || 'lawyer'
+  if (!users[u]) {
+    const p = process.env.LAWYER_BOOT_PASS || 'lawyer123'
+    const salt = crypto.randomBytes(16).toString('hex')
+    const hash = crypto.scryptSync(p, salt, 64).toString('hex')
+    users[u] = { username: u, role: 'lawyer', salt, hash, createdAt: new Date().toISOString() }
+    saveUsers(users)
+    console.log('[auth] 已 seed 初始律师账号:', u, '（请尽快在 .env 设 LAWYER_BOOT_PASS 或修改密码）')
+  }
+})()
+function hashPw(pw, salt) { return crypto.scryptSync(pw, salt, 64).toString('hex') }
+function signToken(user) {
+  const payload = JSON.stringify({ u: user.username, r: user.role, exp: Date.now() + TOKEN_TTL })
+  const sig = crypto.createHmac('sha256', TOKEN_SECRET).update(payload).digest('hex')
+  return Buffer.from(payload).toString('base64url') + '.' + sig
+}
+function verifyToken(token) {
+  if (!token) return null
+  const parts = token.split('.')
+  if (parts.length !== 2) return null
+  const payload = Buffer.from(parts[0], 'base64url').toString('utf8')
+  const sig = crypto.createHmac('sha256', TOKEN_SECRET).update(payload).digest('hex')
+  if (sig !== parts[1]) return null
+  try {
+    const d = JSON.parse(payload)
+    if (d.exp < Date.now()) return null
+    return { username: d.u, role: d.r }
+  } catch { return null }
+}
+// 登录：用户名 + 密码 -> 签名 token
+app.post('/api/auth/login', (req, res) => {
+  const { username, password } = req.body || {}
+  if (!username || !password) return res.status(400).json({ error: '需要用户名和密码' })
+  const users = loadUsers()
+  const user = users[username]
+  if (!user || hashPw(password, user.salt) !== user.hash) return res.status(401).json({ error: '用户名或密码错误' })
+  const token = signToken(user)
+  res.json({ ok: true, token, role: user.role, username: user.username })
+})
+// /api/auth/issue：向后兼容（小程序/APP 用）——管理员令牌换签名 token
 app.post('/api/auth/issue', (req, res) => {
   const t = req.headers['x-admin-token'] || (req.body && req.body.token)
-  if (t !== USER_ISSUE_TOKEN) return res.status(401).json({ error: '令牌错误' })
+  if (t !== (process.env.USER_ISSUE_TOKEN || ADMIN_TOKEN)) return res.status(401).json({ error: '令牌错误' })
   const userId = (req.body && req.body.userId) || 'user'
-  const token = issueUserToken(userId)
+  const token = signToken({ username: userId, role: 'boss' })
   res.json({ ok: true, token, userId })
 })
-// 用户鉴权中间件：REQUIRE_AUTH=true 时强制校验；false 时若带 token 则记录 userId（匿名记 anonymous）
+// 用户鉴权中间件：解析签名 token -> req.user；匿名策略保持
 function userGuard(req, res, next) {
   const auth = req.headers['authorization'] || ''
   const m = auth.match(/^Bearer\s+(.+)$/i)
-  const token = m ? m[1].trim() : null
+  const decoded = m ? verifyToken(m[1].trim()) : null
   if (REQUIRE_AUTH) {
-    if (!token || !userTokens.has(token)) return res.status(401).json({ error: '需要有效的用户 token' })
-    req.userId = userTokens.get(token).userId
+    if (!decoded) return res.status(401).json({ error: '需要登录' })
+    req.user = decoded
   } else {
-    req.userId = (token && userTokens.has(token)) ? userTokens.get(token).userId : 'anonymous'
+    req.user = decoded || { username: 'anonymous', role: 'anon' }
   }
+  req.userId = req.user.username
   next()
+}
+// 律师端守卫：需 lawyer 或 admin
+function lawyerGuard(req, res, next) {
+  userGuard(req, res, () => {
+    if (req.user.role === 'lawyer' || req.user.role === 'admin') return next()
+    return res.status(403).json({ error: '仅律师/管理员可访问' })
+  })
 }
 function maskKey(k) {
   if (!k) return ""
