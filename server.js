@@ -193,9 +193,10 @@ async function answerVision(message, dataUrl, kbContext) {
   });
 }
 
-app.post('/api/chat', upload.single('file'), async (req, res) => {
+app.post('/api/chat', userGuard, upload.single('file'), async (req, res) => {
   const message = (req.body && req.body.message) || '';
   const kb = getKbContext();
+  const userId = req.userId || 'anonymous' // 预留：将来多租户/计费用
   try {
     let reply, model;
     if (req.file && req.file.mimetype && req.file.mimetype.startsWith('image/')) {
@@ -218,7 +219,7 @@ app.post('/api/chat', upload.single('file'), async (req, res) => {
     // 清理临时上传（chat 附件不长期留存）
     if (req.file) fs.unlink(req.file.path, () => {});
     res.json({
-      reply, model,
+      reply, model, userId,
       kbUsed: kb.sources.length > 0,
       kbSources: kb.sources,
       keysReady, allKeysReady, ts: new Date().toISOString(),
@@ -255,6 +256,39 @@ function adminGuard(req, res, next) {
   }
   const t = req.headers["x-admin-token"] || (req.body && req.body.token)
   if (t !== ADMIN_TOKEN) return res.status(401).json({ error: "管理员令牌错误" })
+  next()
+}
+
+// ===== 用户鉴权骨架（V0.04，为小程序/APP 预留，默认不强制）=====
+// 设计：当前 H5 仍匿名可用（REQUIRE_AUTH=false）；将来小程序/APP 设 REQUIRE_AUTH=true，
+// 前端先用 /api/auth/issue 用管理员令牌换一个 user token，之后 /api/chat 带 Authorization: Bearer <token>。
+const REQUIRE_AUTH = process.env.REQUIRE_AUTH === 'true'
+const USER_ISSUE_TOKEN = process.env.USER_ISSUE_TOKEN || ADMIN_TOKEN // 发放用户 token 的管理员令牌
+const userTokens = new Map() // token -> { userId, createdAt }
+function issueUserToken(userId) {
+  const token = 'u_' + Math.random().toString(36).slice(2) + Date.now().toString(36)
+  userTokens.set(token, { userId: userId || 'user', createdAt: Date.now() })
+  return token
+}
+// /api/auth/issue：管理员令牌 -> 用户 token（小程序/APP 启动时调用一次）
+app.post('/api/auth/issue', (req, res) => {
+  const t = req.headers['x-admin-token'] || (req.body && req.body.token)
+  if (t !== USER_ISSUE_TOKEN) return res.status(401).json({ error: '令牌错误' })
+  const userId = (req.body && req.body.userId) || 'user'
+  const token = issueUserToken(userId)
+  res.json({ ok: true, token, userId })
+})
+// 用户鉴权中间件：REQUIRE_AUTH=true 时强制校验；false 时若带 token 则记录 userId（匿名记 anonymous）
+function userGuard(req, res, next) {
+  const auth = req.headers['authorization'] || ''
+  const m = auth.match(/^Bearer\s+(.+)$/i)
+  const token = m ? m[1].trim() : null
+  if (REQUIRE_AUTH) {
+    if (!token || !userTokens.has(token)) return res.status(401).json({ error: '需要有效的用户 token' })
+    req.userId = userTokens.get(token).userId
+  } else {
+    req.userId = (token && userTokens.has(token)) ? userTokens.get(token).userId : 'anonymous'
+  }
   next()
 }
 function maskKey(k) {
@@ -325,7 +359,7 @@ app.post("/api/admin/keys/test", adminGuard, async (req, res) => {
 app.get('/api/version', (req, res) => res.json({ ok: true, version: VERSION, ts: new Date().toISOString() }));
 // 健康检查
 app.get('/api/health', (req, res) =>
-  res.json({ ok: true, version: VERSION, keysReady, allKeysReady, ts: new Date().toISOString() })
+  res.json({ ok: true, version: VERSION, authRequired: REQUIRE_AUTH, keysReady, allKeysReady, ts: new Date().toISOString() })
 );
 
 app.listen(PORT, "0.0.0.0", () => {
