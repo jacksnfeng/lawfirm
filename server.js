@@ -46,8 +46,13 @@ app.use(express.json());
 
 
 // ===== 知识库（V0.02） =====
-const KB_DIR = path.join(__dirname, 'uploads', 'kb');
+// 落盘位置改为 TNAS 共享挂载点（//192.168.0.103/public/数据中心/技术工作/LowFirm法律条文）
+// 由 /etc/fstab 挂载到 ~/lawfirm/kb_tnas，凭据见 /etc/.smbcred_lawfirm。
+// 回退：若挂载点不存在则用本地 uploads/kb，保证服务不崩。
+const TNAS_KB = path.join(__dirname, 'kb_tnas');
+const KB_DIR = fs.existsSync(TNAS_KB) ? TNAS_KB : path.join(__dirname, 'uploads', 'kb');
 fs.mkdirSync(KB_DIR, { recursive: true });
+console.log('[kb] 知识库目录 =', KB_DIR, KB_DIR === TNAS_KB ? '(TNAS)' : '(本地回退)');
 
 // 知识库上传：用 dest 风格（与 chat 上传同一套，已验证可写盘），落盘后重命名为 <时间戳>_<原名>
 const kbUpload = multer({ dest: KB_DIR });
@@ -226,8 +231,28 @@ app.post('/api/chat', upload.single('file'), async (req, res) => {
 
 
 // ===== 后台管理：API Key 设置（V0.03） =====
+const VERSION = "V0.04"
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "lawfirm-admin"
-function adminAuth(req, res, next) {
+// 后台来源 IP 白名单：仅允许办公室局域网 192.168.0.0/24（含 jack 机 192.168.0.131）
+// 其他任何来源访问 /api/admin/* 一律 403，避免公网/外网直接进后台。
+function inAdminSubnet(ip) {
+  if (!ip) return false
+  // 归一化 ::ffff:1.2.3.4 -> 1.2.3.4
+  ip = ip.replace(/^::ffff:/, "")
+  const m = ip.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/)
+  if (!m) return false
+  const [_, a, b] = m.map(Number)
+  // 放行：本机回环(127.x) + 办公室局域网(192.168.0.x，含 jack 机 192.168.0.131)
+  if (a === 127) return true
+  if (a === 192 && b === 168) return true
+  return false
+}
+function adminGuard(req, res, next) {
+  const ip = req.headers["x-forwarded-for"]?.split(",")[0].trim()
+    || req.socket.remoteAddress || req.ip
+  if (!inAdminSubnet(ip)) {
+    return res.status(403).json({ error: "后台仅允许办公室局域网(192.168.0.x)访问", ip })
+  }
   const t = req.headers["x-admin-token"] || (req.body && req.body.token)
   if (t !== ADMIN_TOKEN) return res.status(401).json({ error: "管理员令牌错误" })
   next()
@@ -247,14 +272,14 @@ function writeEnvKey(key, val) {
   if (!found) lines.push(key + "=" + val)
   fs.writeFileSync(p, lines.join("\n"))
 }
-app.get("/api/admin/keys", adminAuth, (req, res) => {
+app.get("/api/admin/keys", adminGuard, (req, res) => {
   res.json({ ok: true, keys: {
     hy3: { value: maskKey(cfg.hy3.key), ready: keysReady.hy3, base: cfg.hy3.base, model: cfg.hy3.model },
     hunyuan: { value: maskKey(cfg.hunyuan.key), ready: keysReady.hunyuan, base: cfg.hunyuan.base, model: cfg.hunyuan.model },
     deepseek: { value: maskKey(cfg.deepseek.key), ready: keysReady.deepseek, base: cfg.deepseek.base, model: cfg.deepseek.model }
   }, allKeysReady })
 })
-app.post("/api/admin/keys", adminAuth, (req, res) => {
+app.post("/api/admin/keys", adminGuard, (req, res) => {
   const b = req.body || {}
   const changed = {}
   if (b.hy3) { cfg.hy3.key = b.hy3; writeEnvKey("HY3_KEY", b.hy3); changed.hy3 = true }
@@ -264,7 +289,7 @@ app.post("/api/admin/keys", adminAuth, (req, res) => {
   res.json({ ok: true, changed, keysReady, allKeysReady })
 })
 // 连通性测试：用指定 key 向对应 base 发最小 chat 请求，只验证、不改动内存 key
-app.post("/api/admin/keys/test", adminAuth, async (req, res) => {
+app.post("/api/admin/keys/test", adminGuard, async (req, res) => {
   const b = req.body || {}
   const provider = b.provider
   const candidate = b.key // 前端传来的待测 key（已填新值用新值，否则用当前值）
@@ -296,12 +321,14 @@ app.post("/api/admin/keys/test", adminAuth, async (req, res) => {
     res.json({ ok: false, provider, reachable: false, ms, error: e.message })
   }
 })
+// 版本号（后台页拉取显示）
+app.get('/api/version', (req, res) => res.json({ ok: true, version: VERSION, ts: new Date().toISOString() }));
 // 健康检查
 app.get('/api/health', (req, res) =>
-  res.json({ ok: true, version: 'V0.02', keysReady, allKeysReady, ts: new Date().toISOString() })
+  res.json({ ok: true, version: VERSION, keysReady, allKeysReady, ts: new Date().toISOString() })
 );
 
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Lawfirm V0.02 服务已启动: http://localhost:${PORT}`);
+  console.log(`Lawfirm ${VERSION} 服务已启动: http://localhost:${PORT}`);
   console.log('Key 状态:', keysReady, 'allReady =', allKeysReady);
 });

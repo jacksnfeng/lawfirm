@@ -38,7 +38,7 @@
 </style>
 </head>
 <body>
-  <h1>⚙️ Lawfirm 后台 · API Key 管理</h1>
+  <h1>⚙️ Lawfirm 后台 · API Key 管理 <span id="verBadge" style="font-size:13px;background:var(--line);color:var(--acc);padding:3px 10px;border-radius:20px;vertical-align:middle;">V?.</span></h1>
   <div class="sub">设置主模型 / 视觉模型 / 备用模型的 Key。修改即时生效并写入服务器 .env（重启后保留）。</div>
 
   <div class="card">
@@ -73,8 +73,16 @@ const $ = id => document.getElementById(id);
 
 function maskPreview(v){ return v ? v.slice(0,8)+'…'+v.slice(-4) : '(空)'; }
 
+async function loadVersion(){
+  try{
+    const r = await fetch(API+'/api/version');
+    const d = await r.json();
+    if(d.ok) $('verBadge').textContent = d.version;
+  }catch(e){ /* 版本号获取失败不阻塞主流程 */ }
+}
 async function load(){
   const tok = $('inTok').value || 'lawfirm-admin';
+  loadVersion();
   try{
     const r = await fetch(API+'/api/admin/keys', { headers:{'x-admin-token':tok} });
     const d = await r.json();
