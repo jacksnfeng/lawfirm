@@ -19,6 +19,11 @@
   .kval { font-family:monospace; font-size:13px; color:var(--acc); }
   .dot { width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:6px; }
   .ok { background:var(--ok); } .bad { background:var(--bad); }
+  .testbtn { background:transparent; color:var(--acc); border:1px solid var(--acc); padding:6px 14px; border-radius:7px; font-size:12px; cursor:pointer; margin-left:10px; white-space:nowrap; }
+  .testbtn:hover { background:rgba(79,157,255,.12); }
+  .testbtn:disabled { opacity:.5; cursor:default; }
+  .teststate { font-size:12px; margin-left:8px; }
+  .teststate.ok { color:var(--ok); } .teststate.bad { color:var(--bad); } .teststate.run { color:var(--sub); }
   label { font-size:13px; color:var(--sub); display:block; margin-bottom:6px; }
   input { width:100%; padding:10px 12px; background:#0d1117; border:1px solid var(--line); border-radius:8px; color:var(--txt); font-family:monospace; font-size:13px; margin-bottom:14px; }
   input:focus { outline:none; border-color:var(--acc); }
@@ -76,22 +81,60 @@ async function load(){
     if(!d.ok){ $('curKeys').innerHTML = '<span style="color:var(--bad)">加载失败：'+d.error+'</span>'; return; }
     const k = d.keys;
     $('curKeys').innerHTML = `
-      ${row('主模型 hy3','Hy3',k.hy3)}
-      ${row('视觉模型 hunyuan','hy-vision-2.0-instruct',k.hunyuan)}
-      ${row('备用 deepseek','deepseek-chat',k.deepseek)}
+      ${row('主模型 hy3','Hy3',k.hy3,'hy3','inHy3')}
+      ${row('视觉模型 hunyuan','hy-vision-2.0-instruct',k.hunyuan,'hunyuan','inHy')}
+      ${row('备用 deepseek','deepseek-chat',k.deepseek,'deepseek','inDs')}
     `;
     $('inHy3').placeholder = '当前：'+maskPreview(k.hy3.value)+'（留空不修改）';
     $('inHy').placeholder  = '当前：'+maskPreview(k.hunyuan.value)+'（留空不修改）';
     $('inDs').placeholder  = '当前：'+maskPreview(k.deepseek.value)+'（留空不修改）';
   }catch(e){ $('curKeys').innerHTML='<span style="color:var(--bad)">请求出错</span>'; }
 }
-function row(name,model,k){
+function row(name,model,k,provider,inId){
   const cls = k.ready ? 'ok':'bad';
   const txt = k.ready ? '已就绪':'未配置';
-  return `<div class="row"><div class="kname">${name}<small>model: ${model}<br>base: ${k.base}</small></div>
-    <div style="text-align:right"><div class="kval">${maskPreview(k.value)}</div>
-    <div style="font-size:12px;color:var(--sub)"><span class="dot ${cls}"></span>${txt}</div></div></div>`;
+  return `<div class="row"><div class="kname">${name}
+      <small>model: ${model}<br>base: ${k.base}</small>
+      <span class="teststate" id="ts_${provider}"></span></div>
+    <div style="text-align:right;display:flex;align-items:center;justify-content:flex-end">
+      <div>
+        <div class="kval">${maskPreview(k.value)}</div>
+        <div style="font-size:12px;color:var(--sub)"><span class="dot ${cls}"></span>${txt}</div>
+      </div>
+      <button class="testbtn" data-provider="${provider}" data-in="${inId}">测试</button>
+    </div></div>`;
 }
+async function testKey(btn){
+  const provider = btn.getAttribute('data-provider');
+  const inId = btn.getAttribute('data-in');
+  const tok = $('inTok').value || 'lawfirm-admin';
+  // 优先用输入框里填的新值；空则用当前已配置的 key（由服务端决定）
+  const candidate = ($(inId).value || '').trim();
+  const ts = $('ts_'+provider);
+  btn.disabled = true;
+  ts.className = 'teststate run'; ts.textContent = '测试中…';
+  try{
+    const r = await fetch(API+'/api/admin/keys/test', {
+      method:'POST',
+      headers:{'Content-Type':'application/json','x-admin-token':tok},
+      body: JSON.stringify({ provider, key: candidate })
+    });
+    const d = await r.json();
+    if(d.reachable){
+      ts.className='teststate ok'; ts.textContent='✅ 连通 '+(d.ms||'')+'ms';
+    }else{
+      ts.className='teststate bad'; ts.textContent='❌ 不通: '+(d.error||'未知').slice(0,60);
+    }
+  }catch(e){
+    ts.className='teststate bad'; ts.textContent='❌ 请求失败';
+  }finally{
+    btn.disabled = false;
+  }
+}
+document.addEventListener('click', e=>{
+  const b = e.target.closest('.testbtn');
+  if(b) testKey(b);
+});
 
 $('saveBtn').onclick = async ()=>{
   const tok = $('inTok').value || 'lawfirm-admin';

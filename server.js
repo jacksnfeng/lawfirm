@@ -262,6 +262,39 @@ app.post("/api/admin/keys", adminAuth, (req, res) => {
   keysReady.hy3 = !!cfg.hy3.key; keysReady.hunyuan = !!cfg.hunyuan.key; keysReady.deepseek = !!cfg.deepseek.key
   res.json({ ok: true, changed, keysReady, allKeysReady })
 })
+// 连通性测试：用指定 key 向对应 base 发最小 chat 请求，只验证、不改动内存 key
+app.post("/api/admin/keys/test", adminAuth, async (req, res) => {
+  const b = req.body || {}
+  const provider = b.provider
+  const candidate = b.key // 前端传来的待测 key（已填新值用新值，否则用当前值）
+  const map = {
+    hy3: cfg.hy3,
+    hunyuan: cfg.hunyuan,
+    deepseek: cfg.deepseek,
+  }
+  const c = map[provider]
+  if (!c) return res.status(400).json({ ok: false, error: "未知 provider: " + provider })
+  // 决议 key：优先用前端传入的待测值，保证"先填再测新 key"也能测；空则用现有值
+  const testKey = (candidate && candidate.trim()) ? candidate.trim() : c.key
+  if (!testKey) return res.status(400).json({ ok: false, error: "没有可测试的 Key（该 Key 为空）" })
+  // hunyuan 是多模态视觉模型，也用 chat/completions 探活（tokenhub 该端点兼容）
+  const probeContent = provider === "hunyuan"
+    ? [{ type: "text", text: "ping" }]
+    : "ping"
+  const t0 = Date.now()
+  try {
+    const txt = await chatCompletion({
+      base: c.base, key: testKey, model: c.model,
+      messages: [{ role: "user", content: probeContent }],
+      timeoutMs: 15000,
+    })
+    const ms = Date.now() - t0
+    res.json({ ok: true, provider, reachable: true, ms, model: c.model, sample: String(txt).slice(0, 40) })
+  } catch (e) {
+    const ms = Date.now() - t0
+    res.json({ ok: false, provider, reachable: false, ms, error: e.message })
+  }
+})
 // 健康检查
 app.get('/api/health', (req, res) =>
   res.json({ ok: true, version: 'V0.02', keysReady, allKeysReady, ts: new Date().toISOString() })
